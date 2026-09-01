@@ -122,6 +122,15 @@ type RTCConfig struct {
 
 	TURNServers []TURNServer `yaml:"turn_servers,omitempty"`
 
+	// FIPSDTLS restricts DTLS-SRTP negotiation to FIPS-approved algorithms
+	// (AES-GCM cipher suites, NIST P-256/P-384 curves, AES-GCM SRTP profiles).
+	// FIPS *validation* also requires building with GOFIPS140 so the primitives
+	// resolve to the certified module; enabling this without the FIPS module
+	// active is a hard config error (the server refuses to start) rather than a
+	// silent "claims FIPS, isn't validated" state. Off by default; when unset,
+	// negotiation is unchanged.
+	FIPSDTLS bool `yaml:"fips_dtls,omitempty"`
+
 	// EnableWarp turns on WARP = SPED (DTLS-in-STUN, saves DTLS round-trip) +
 	// SNAP (SCTP INIT in SDP, saves SCTP/data-channel init round-trip).
 	// Off by default; experimental.
