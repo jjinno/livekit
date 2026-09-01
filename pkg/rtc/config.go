@@ -15,6 +15,9 @@
 package rtc
 
 import (
+	"crypto/fips140"
+	"fmt"
+
 	"github.com/pion/sdp/v3"
 	"github.com/pion/webrtc/v4"
 
@@ -37,6 +40,7 @@ type WebRTCConfig struct {
 	Receiver      ReceiverConfig
 	Publisher     DirectionConfig
 	Subscriber    DirectionConfig
+	FIPSDTLS      bool
 }
 
 type ReceiverConfig struct {
@@ -61,6 +65,17 @@ type DirectionConfig struct {
 
 func NewWebRTCConfig(conf *config.Config) (*WebRTCConfig, error) {
 	rtcConf := conf.RTC
+
+	// fips_dtls means the media path must be FIPS-validated, which requires the
+	// Go FIPS module (a GOFIPS140 build) so the primitives resolve to the
+	// certified module. Restricting the negotiated algorithms without the module
+	// active would leave the server in an ambiguous "claims FIPS, isn't validated"
+	// state, so refuse to start rather than mislead the operator. Build with
+	// GOFIPS140, or disable fips_dtls.
+	if rtcConf.FIPSDTLS && !fips140.Enabled() {
+		return nil, fmt.Errorf("fips_dtls is enabled but the Go FIPS module is not active: " +
+			"build with GOFIPS140 so DTLS-SRTP crypto is FIPS-validated, or disable fips_dtls")
+	}
 
 	webRTCConfig, err := rtcconfig.NewWebRTCConfig(&rtcConf.RTCConfig, conf.Development)
 	if err != nil {
@@ -88,6 +103,7 @@ func NewWebRTCConfig(conf *config.Config) (*WebRTCConfig, error) {
 		},
 		Publisher:  getPublisherConfig(false),
 		Subscriber: getSubscriberConfig(rtcConf.CongestionControl.UseSendSideBWEInterceptor || rtcConf.CongestionControl.UseSendSideBWE),
+		FIPSDTLS:   rtcConf.FIPSDTLS,
 	}, nil
 }
 

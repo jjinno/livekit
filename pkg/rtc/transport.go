@@ -360,9 +360,16 @@ func newPeerConnection(
 	// so disable rid pause in SDP
 	se.SetIgnoreRidPauseForRecv(true)
 
-	// Change elliptic curve to improve connectivity
-	// https://github.com/pion/dtls/pull/474
-	se.SetDTLSEllipticCurves(elliptic.X25519, elliptic.P384, elliptic.P256)
+	if params.Config.FIPSDTLS {
+		// Restrict DTLS-SRTP to FIPS-approved cipher suites, curves, and SRTP
+		// profiles (fips_dtls.go). FIPS deployments depend on this apply-site
+		// staying in place — see fips_dtls_test.go.
+		applyFIPSDTLS(&se)
+	} else {
+		// Change elliptic curve to improve connectivity
+		// https://github.com/pion/dtls/pull/474
+		se.SetDTLSEllipticCurves(elliptic.X25519, elliptic.P384, elliptic.P256)
+	}
 
 	// Disable close by dtls to avoid peerconnection close too early in migration
 	// https://github.com/pion/webrtc/pull/2961
