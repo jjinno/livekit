@@ -70,7 +70,7 @@ const (
 var (
 	ErrKeyFileIncorrectPermission        = errors.New("key file others permissions must be set to 0")
 	ErrTURNSecretFileIncorrectPermission = errors.New("turn secret file others permissions must be set to 0")
-	ErrKeysNotSet                        = errors.New("one of key-file or keys must be provided")
+	ErrKeysNotSet                        = errors.New("one of key-file, keys, or public_keys must be provided")
 	ErrTURNSecretEmpty                   = errors.New("turn secret is empty")
 	ErrTURNServerNoCredentials           = errors.New("turn server has no usable credentials: set a non-empty secret/secret_file for dynamic auth, or username and credential for static auth")
 )
@@ -94,9 +94,24 @@ type Config struct {
 	NodeSelector   NodeSelectorConfig       `yaml:"node_selector,omitempty"`
 	KeyFile        string                   `yaml:"key_file,omitempty"`
 	Keys           map[string]string        `yaml:"keys,omitempty"`
-	Region         string                   `yaml:"region,omitempty"`
-	SignalRelay    SignalRelayConfig        `yaml:"signal_relay,omitempty"`
-	PSRPC          rpc.PSRPCConfig          `yaml:"psrpc,omitempty"`
+	// PublicKeys optionally maps an API key to a PEM-encoded PUBLIC key
+	// (SubjectPublicKeyInfo or PKCS#1) for asymmetric access-token verification
+	// (ECDSA/RSA/Ed25519; algorithm derived from the key type). Tokens for such an
+	// API key are verified with the public key instead of a shared HMAC secret, so
+	// the server holds no key that can mint tokens for it. An API key must not
+	// appear in both `keys` and `public_keys` (rejected at startup). Off by default;
+	// the symmetric `keys` map is unaffected.
+	//
+	// Because a public-key-only server holds no signing secret, SFU-side operations
+	// that require minting/signing are unavailable for such keys: server-side token
+	// refresh (the external issuer owns token lifetime), embedded-TURN REST
+	// credentials, webhook signing, and agent-worker token minting. To keep those
+	// features, also configure a symmetric "ops" key in `keys` (a mixed deployment) —
+	// note the ops key is then a mintable secret the server holds.
+	PublicKeys  map[string]string `yaml:"public_keys,omitempty"`
+	Region      string            `yaml:"region,omitempty"`
+	SignalRelay SignalRelayConfig `yaml:"signal_relay,omitempty"`
+	PSRPC       rpc.PSRPCConfig   `yaml:"psrpc,omitempty"`
 	// Deprecated: LogLevel is deprecated
 	LogLevel string        `yaml:"log_level,omitempty"`
 	Logging  LoggingConfig `yaml:"logging,omitempty"`
@@ -798,7 +813,7 @@ func (conf *Config) ValidateKeys() error {
 		}
 	}
 
-	if len(conf.Keys) == 0 {
+	if len(conf.Keys) == 0 && len(conf.PublicKeys) == 0 {
 		return ErrKeysNotSet
 	}
 

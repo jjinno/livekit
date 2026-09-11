@@ -16,6 +16,7 @@ package service
 
 import (
 	"context"
+	"crypto"
 	"errors"
 	"fmt"
 	"net/http"
@@ -27,6 +28,14 @@ import (
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
 )
+
+// publicKeyProvider is optionally implemented by a KeyProvider that also holds
+// asymmetric public keys for token verification. When present and it returns a
+// non-nil key for an API key, the token is verified with that public key instead
+// of an HMAC secret.
+type publicKeyProvider interface {
+	GetPublicKey(apiKey string) crypto.PublicKey
+}
 
 const (
 	authorizationHeader = "Authorization"
@@ -87,13 +96,24 @@ func (m *APIKeyAuthMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request,
 			return
 		}
 
-		secret := m.provider.GetSecret(v.APIKey())
-		if secret == "" {
-			HandleError(w, r, http.StatusUnauthorized, ErrInvalidAPIKey, "apiKey", v.APIKey())
-			return
+		// Determine the verification key: an asymmetric public key when this API
+		// key is configured for one, otherwise the shared HMAC secret.
+		var verifyKey interface{}
+		if pkp, ok := m.provider.(publicKeyProvider); ok {
+			if pub := pkp.GetPublicKey(v.APIKey()); pub != nil {
+				verifyKey = pub
+			}
+		}
+		if verifyKey == nil {
+			secret := m.provider.GetSecret(v.APIKey())
+			if secret == "" {
+				HandleError(w, r, http.StatusUnauthorized, ErrInvalidAPIKey, "apiKey", v.APIKey())
+				return
+			}
+			verifyKey = secret
 		}
 
-		claims, grants, err := v.Verify(secret)
+		claims, grants, err := v.Verify(verifyKey)
 		if err != nil {
 			HandleError(w, r, http.StatusUnauthorized, fmt.Errorf("%w: %s", ErrInvalidAuthorizationToken, err.Error()))
 			return

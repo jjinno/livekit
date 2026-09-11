@@ -214,11 +214,27 @@ func createKeyProvider(conf *config.Config) (auth.KeyProvider, error) {
 		}
 	}
 
-	if len(conf.Keys) == 0 {
-		return nil, errors.New("one of key-file or keys must be provided in order to support a secure installation")
+	if len(conf.Keys) == 0 && len(conf.PublicKeys) == 0 {
+		return nil, errors.New("one of key-file, keys, or public_keys must be provided in order to support a secure installation")
 	}
 
-	return auth.NewFileBasedKeyProviderFromMap(conf.Keys), nil
+	provider := auth.NewFileBasedKeyProviderFromMap(conf.Keys)
+	if len(conf.PublicKeys) == 0 {
+		return provider, nil
+	}
+	// An API key must use exactly one verification mode. Overlap would be a
+	// silent split-brain (verified asymmetrically, but still holding an HMAC
+	// secret used for TURN/webhook/refresh), so reject it at startup.
+	for apiKey := range conf.PublicKeys {
+		if _, dup := conf.Keys[apiKey]; dup {
+			return nil, fmt.Errorf("API key %q is configured in both keys and public_keys; each API key must use exactly one verification mode", apiKey)
+		}
+	}
+	publicKeys, err := parsePublicKeys(conf.PublicKeys)
+	if err != nil {
+		return nil, err
+	}
+	return &asymmetricKeyProvider{KeyProvider: provider, publicKeys: publicKeys}, nil
 }
 
 func createWebhookNotifier(conf *config.Config, provider auth.KeyProvider) (webhook.QueuedNotifier, error) {

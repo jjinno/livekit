@@ -128,6 +128,10 @@ func NewLocalRoomManager(
 		return nil, err
 	}
 
+	if len(conf.PublicKeys) > 0 {
+		logger.Infow("public_keys configured: server-side token refresh is disabled; the external token issuer owns token lifetime")
+	}
+
 	r := &RoomManager{
 		config:            conf,
 		rtcConfig:         rtcConf,
@@ -1144,6 +1148,17 @@ func (r *RoomManager) iceServersForParticipant(apiKey string, participant types.
 }
 
 func (r *RoomManager) refreshToken(participant types.LocalParticipant) error {
+	// A server configured with public_keys defers token lifetime to the external
+	// minter and must not re-mint: in a mixed deployment re-minting would silently
+	// downgrade an asymmetrically-authenticated participant to an HMAC token issued
+	// under a different key. Server-side refresh is therefore disabled whenever any
+	// public key is configured (announced once at startup in NewLocalRoomManager).
+	// Permission enforcement is unaffected — it reads the live in-memory grants,
+	// not the token; only the client's stored resume token goes stale.
+	if len(r.config.PublicKeys) > 0 {
+		return nil
+	}
+
 	key, secret, err := r.getFirstKeyPair()
 	if err != nil {
 		return err
